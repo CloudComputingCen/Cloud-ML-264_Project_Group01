@@ -1,0 +1,13 @@
+**/AppData/
+**/OneDrive/
+**/anaconda*/
+**/*.log
+**/*.pid
+**/3T/
+__pycache__/
+.vscode/
+.idea/
+*.tmp
+*.png
+*.jpg
+*.pdf
