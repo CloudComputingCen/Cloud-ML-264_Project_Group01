@@ -30,6 +30,21 @@
     <button type="submit">Extract</button>
   </form>
 
+  <h2>Reanalyze Invoice</h2>
+  <form id="reanalyze-form">
+    <input type="text" id="reanalyze-filename" placeholder="Enter file name to reanalyze" style="width: 100%;" />
+    <button type="submit">Reanalyze</button>
+  </form>
+
+  <h2>Latest Invoice</h2>
+  <button id="latest-invoice">Load Latest Invoice</button>
+
+  <h2>Search Invoices</h2>
+  <form id="search-form">
+    <input type="text" id="search-query" placeholder="Search keyword..." />
+    <button type="submit">Search</button>
+  </form>
+
   <h2>My Invoices</h2>
   <button id="load-invoices">Load My Invoices</button>
 
@@ -103,7 +118,6 @@
         const data = await res.json();
         output.textContent = 'Upload:\n' + JSON.stringify(data, null, 2);
 
-        // Auto-fill the extract field
         if (data.file_name) {
           document.getElementById('extract-filename').value = data.file_name;
         }
@@ -133,6 +147,66 @@
 
       const data = await res.json();
       output.textContent = 'Extracted Data:\n' + JSON.stringify(data, null, 2);
+    });
+
+    document.getElementById('reanalyze-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!accessToken) {
+        output.textContent = 'Please log in first!';
+        return;
+      }
+
+      const fileName = document.getElementById('reanalyze-filename').value;
+      if (!fileName) {
+        output.textContent = 'Please enter the file name to reanalyze';
+        return;
+      }
+
+      const res = await fetch(`http://localhost:8000/reanalyze/${encodeURIComponent(fileName)}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+
+      const data = await res.json();
+      output.textContent = 'Reanalyzed Data:\n' + JSON.stringify(data, null, 2);
+    });
+
+    document.getElementById('latest-invoice').addEventListener('click', async () => {
+      if (!accessToken) {
+        output.textContent = 'Please log in first!';
+        return;
+      }
+
+      const res = await fetch('http://localhost:8000/latest-invoice', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+
+      const data = await res.json();
+      output.textContent = 'Latest Invoice:\n' + JSON.stringify(data, null, 2);
+    });
+
+    document.getElementById('search-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!accessToken) {
+        output.textContent = 'Please log in first!';
+        return;
+      }
+
+      const query = document.getElementById('search-query').value;
+      const res = await fetch(`http://localhost:8000/search-invoices?q=${encodeURIComponent(query)}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+
+      const data = await res.json();
+      output.textContent = 'Search Results:\n' + JSON.stringify(data, null, 2);
     });
 
     document.getElementById('load-invoices').addEventListener('click', async () => {

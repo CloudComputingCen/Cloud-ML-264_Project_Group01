@@ -185,3 +185,43 @@ def get_user_invoices():
         "user_id": user_id,
         "invoices": data
     }
+
+@app.route('/reanalyze/{file_name}', methods=['POST'], cors=True)
+def reanalyze_file(file_name):
+    user_id = get_authenticated_user_id()
+    file_name = unquote(file_name)
+    
+    if not file_name.startswith(f"uploads/{user_id}/"):
+        raise UnauthorizedError("Access denied.")
+    
+    extracted = textract_service.analyze_document(file_name)
+
+    return {
+        'fileName': file_name,
+        'extractedData': extracted,
+        'status': 'reanalyzed'
+    }
+
+@app.route('/latest-invoice', methods=['GET'], cors=True)
+def latest_invoice():
+    user_id = get_authenticated_user_id()
+    prefix = f'uploads/{user_id}/'
+    
+    response = s3.list_objects_v2(Bucket=BUCKET_NAME, Prefix=prefix)
+    files = sorted(
+        [obj for obj in response.get('Contents', []) if not obj['Key'].endswith('data.json')],
+        key=lambda x: x['LastModified'],
+        reverse=True
+    )
+
+    if not files:
+        return {'message': 'No invoices uploaded yet.'}
+    
+    latest_file = files[0]['Key']
+    extracted_data = textract_service.analyze_document(latest_file)
+    
+    return {
+        'fileName': latest_file,
+        'extractedData': extracted_data
+    }
+
