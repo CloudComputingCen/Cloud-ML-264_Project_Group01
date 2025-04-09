@@ -1,0 +1,5 @@
+boto3
+chalice
+PyJWT
+cryptography
+requests
