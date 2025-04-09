@@ -6,6 +6,7 @@ import base64
 import uuid
 import boto3
 from urllib.parse import unquote
+import json
 
 app = Chalice(app_name='cloudcomputingproject')
 app.debug = True
@@ -62,6 +63,8 @@ def extract_invoice(file_name):
 # When uploading an image, we use Base64
 @app.route('/upload-image', methods=['POST'], cors=True)
 def upload_image():
+    import json
+
     user_id = get_authenticated_user_id()
     body = app.current_request.json_body
 
@@ -76,8 +79,10 @@ def upload_image():
     except Exception:
         raise BadRequestError("Invalid base64 string.")
 
+    # Generate image file name
     file_name = f"uploads/{user_id}/{uuid.uuid4()}.{file_ext}"
 
+    # Upload the image to S3
     s3.put_object(
         Bucket=BUCKET_NAME,
         Key=file_name,
@@ -86,11 +91,45 @@ def upload_image():
         ACL='private'
     )
 
+    # Analyze the uploaded image
+    extracted_data = textract_service.analyze_document(file_name)
+
+    # Prepare the new record
+    new_record = {
+        "file_name": file_name,
+        "extracted": extracted_data
+    }
+
+    # Path to the user's data file
+    data_file_key = f"uploads/{user_id}/data.json"
+
+    # Try to load existing data
+    try:
+        existing_obj = s3.get_object(Bucket=BUCKET_NAME, Key=data_file_key)
+        existing_data = json.loads(existing_obj['Body'].read())
+    except s3.exceptions.NoSuchKey:
+        existing_data = []
+
+    # Append new record
+    existing_data.append(new_record)
+
+    # Save updated data.json back to S3
+    s3.put_object(
+        Bucket=BUCKET_NAME,
+        Key=data_file_key,
+        Body=json.dumps(existing_data).encode('utf-8'),
+        ContentType='application/json',
+        ACL='private'
+    )
+
     return {
         "message": "Upload successful",
         "file_name": file_name,
-        "s3_key": file_name
+        "extractedData": extracted_data,
+        "saved_to": data_file_key
     }
+
+
 
 
 @app.route('/signup', methods=['POST'], cors=True)
@@ -126,3 +165,23 @@ def login():
         }
     else:
         return Response(status_code=401, body={'error': result['message']})
+    
+
+@app.route('/my-invoices', methods=['GET'], cors=True)
+def get_user_invoices():
+
+    user_id = get_authenticated_user_id()
+    data_file_key = f"uploads/{user_id}/data.json"
+
+    try:
+        # Fetch the existing data.json from S3
+        response = s3.get_object(Bucket=BUCKET_NAME, Key=data_file_key)
+        data = json.loads(response['Body'].read())
+    except s3.exceptions.NoSuchKey:
+        # If the file doesn't exist yet, return empty list
+        data = []
+
+    return {
+        "user_id": user_id,
+        "invoices": data
+    }

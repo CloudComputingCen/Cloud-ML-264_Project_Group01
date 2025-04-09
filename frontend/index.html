@@ -30,6 +30,9 @@
     <button type="submit">Extract</button>
   </form>
 
+  <h2>My Invoices</h2>
+  <button id="load-invoices">Load My Invoices</button>
+
   <pre id="output"></pre>
 
   <script>
@@ -130,6 +133,23 @@
 
       const data = await res.json();
       output.textContent = 'Extracted Data:\n' + JSON.stringify(data, null, 2);
+    });
+
+    document.getElementById('load-invoices').addEventListener('click', async () => {
+      if (!accessToken) {
+        output.textContent = 'Please log in first!';
+        return;
+      }
+
+      const res = await fetch('http://localhost:8000/my-invoices', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+
+      const data = await res.json();
+      output.textContent = 'Your Invoices:\n' + JSON.stringify(data, null, 2);
     });
   </script>
 </body>
