@@ -7,9 +7,18 @@ import uuid
 import boto3
 from urllib.parse import unquote
 import json
+from datetime import datetime, timedelta, timezone
+from chalice import CORSConfig
 
 app = Chalice(app_name='cloudcomputingproject')
 app.debug = True
+cors_config = CORSConfig(
+    allow_origin='*',
+    allow_headers=['Authorization', 'Content-Type'],
+    max_age=600,
+    expose_headers=['Authorization'],
+    allow_credentials=True
+)
 
 # Reworked Setup
 BUCKET_NAME = 'contentcen301247017.aws.ai'
@@ -63,13 +72,13 @@ def extract_invoice(file_name):
 # When uploading an image, we use Base64
 @app.route('/upload-image', methods=['POST'], cors=True)
 def upload_image():
-    import json
+    from datetime import datetime, timedelta, timezone
 
     user_id = get_authenticated_user_id()
     body = app.current_request.json_body
 
     image_data = body.get('image')
-    file_ext = body.get('extension', 'jpg')
+    file_ext = body.get('extension', 'jpg').lower()
 
     if not image_data:
         raise BadRequestError("Missing 'image' field (base64 encoded).")
@@ -79,41 +88,42 @@ def upload_image():
     except Exception:
         raise BadRequestError("Invalid base64 string.")
 
-    # Generate image file name
+    # Generate unique file name
     file_name = f"uploads/{user_id}/{uuid.uuid4()}.{file_ext}"
+    content_type = 'application/pdf' if file_ext == 'pdf' else f'image/{file_ext}'
 
-    # Upload the image to S3
+    # Upload to S3
     s3.put_object(
         Bucket=BUCKET_NAME,
         Key=file_name,
         Body=binary_data,
-        ContentType=f'image/{file_ext}',
+        ContentType=content_type,
         ACL='private'
     )
 
-    # Analyze the uploaded image
+    # Analyze with Textract
     extracted_data = textract_service.analyze_document(file_name)
 
-    # Prepare the new record
+    # Record to save in data.json
     new_record = {
         "file_name": file_name,
-        "extracted": extracted_data
+        "extracted": extracted_data,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "reminders_enabled": True
     }
 
-    # Path to the user's data file
     data_file_key = f"uploads/{user_id}/data.json"
 
-    # Try to load existing data
+    # Load existing invoice metadata
     try:
         existing_obj = s3.get_object(Bucket=BUCKET_NAME, Key=data_file_key)
         existing_data = json.loads(existing_obj['Body'].read())
     except s3.exceptions.NoSuchKey:
         existing_data = []
 
-    # Append new record
     existing_data.append(new_record)
 
-    # Save updated data.json back to S3
+    # Save updated invoice metadata
     s3.put_object(
         Bucket=BUCKET_NAME,
         Key=data_file_key,
@@ -122,11 +132,53 @@ def upload_image():
         ACL='private'
     )
 
+    # Reminder Upload
+    reminder_key = f"uploads/{user_id}/reminders.json"
+    try:
+        obj = s3.get_object(Bucket=BUCKET_NAME, Key=reminder_key)
+        reminders = json.loads(obj['Body'].read())
+    except s3.exceptions.NoSuchKey:
+        reminders = []
+
+    if not any(r["file_name"] == file_name for r in reminders):
+        now = datetime.now(timezone.utc)
+        due_date_str = extracted_data.get("DueDate")
+
+        # Try to parse due date from extractedData["DueDate"]
+        try:
+            extracted_due_date = datetime.fromisoformat(due_date_str).replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            # Fallback to 24h from now
+            extracted_due_date = now + timedelta(days=1)
+
+        # Calculate ideal reminder time
+        reminder_time = extracted_due_date - timedelta(hours=24)
+
+        # If ideal time is already in the past, bump to now + 15min
+        if reminder_time < now:
+            reminder_time = now + timedelta(minutes=15)
+
+        reminders.append({
+            "file_name": file_name,
+            "created_at": now.isoformat(),
+            "due_date": extracted_due_date.isoformat().replace("+00:00", "Z"),
+            "reminder_time": reminder_time.isoformat().replace("+00:00", "Z")
+        })
+
+        # Save updated reminders
+        s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=reminder_key,
+            Body=json.dumps(reminders).encode('utf-8'),
+            ContentType='application/json'
+        )
+
     return {
         "message": "Upload successful",
         "file_name": file_name,
         "extractedData": extracted_data,
-        "saved_to": data_file_key
+        "saved_to": data_file_key,
+        "reminder_time": reminder_time.isoformat().replace("+00:00", "Z")
     }
 
 
@@ -225,3 +277,77 @@ def latest_invoice():
         'extractedData': extracted_data
     }
 
+
+# Reminders
+@app.route('/create-reminder', methods=['POST'], cors=True)
+def create_reminder():
+    body = app.current_request.json_body
+    user_id = get_authenticated_user_id()
+    file_name = body.get("file_name")
+    if not file_name:
+        raise BadRequestError("Missing file_name.")
+
+    reminder_key = f"uploads/{user_id}/reminders.json"
+
+    try:
+        obj = s3.get_object(Bucket=BUCKET_NAME, Key=reminder_key)
+        reminders = json.loads(obj['Body'].read())
+    except s3.exceptions.NoSuchKey:
+        reminders = []
+
+    if any(reminder["file_name"] == file_name for reminder in reminders):
+        return {"message": "Reminder already exists for this file."}
+
+    now = datetime.now(timezone.utc)
+    reminders.append({
+        "file_name": file_name,
+        "created_at": now.isoformat(),
+        "reminder_time": (now + timedelta(hours=24)).isoformat() + "Z"
+    })
+
+    s3.put_object(
+        Bucket=BUCKET_NAME,
+        Key=reminder_key,
+        Body=json.dumps(reminders).encode('utf-8'),
+        ContentType='application/json'
+    )
+
+    return {"message": "Reminder created."}
+
+@app.route('/get-reminders', methods=['GET'], cors=True)
+def get_reminders():
+    user_id = get_authenticated_user_id()
+    reminder_key = f"uploads/{user_id}/reminders.json"
+
+    try:
+        obj = s3.get_object(Bucket=BUCKET_NAME, Key=reminder_key)
+        reminders = json.loads(obj['Body'].read())
+    except s3.exceptions.NoSuchKey:
+        reminders = []
+
+    return {"reminders": reminders}
+
+@app.route('/delete-reminder', methods=['POST'], cors=True)
+def delete_reminder():
+    body = app.current_request.json_body
+    user_id = get_authenticated_user_id()
+    file_name = body.get("file_name")
+
+    reminder_key = f"uploads/{user_id}/reminders.json"
+
+    try:
+        obj = s3.get_object(Bucket=BUCKET_NAME, Key=reminder_key)
+        reminders = json.loads(obj['Body'].read())
+    except s3.exceptions.NoSuchKey:
+        return {"error": "No reminders found."}
+
+    updated = [r for r in reminders if r["file_name"] != file_name]
+
+    s3.put_object(
+        Bucket=BUCKET_NAME,
+        Key=reminder_key,
+        Body=json.dumps(updated).encode('utf-8'),
+        ContentType='application/json'
+    )
+
+    return {"message": "Reminder deleted."}
