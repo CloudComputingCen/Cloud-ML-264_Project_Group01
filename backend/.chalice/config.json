@@ -4,7 +4,9 @@
     "stages": {
       "dev": {
         "api_gateway_stage": "api",
-        "manage_iam_role": true
+        "manage_iam_role": true,
+        "environment_variables": {},
+        "cors": true
       }
     }
   }

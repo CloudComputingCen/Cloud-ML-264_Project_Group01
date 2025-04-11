@@ -20,7 +20,7 @@
 
   <h1>Upload Image</h1>
   <form id="upload-form">
-    <input type="file" id="image-file" accept="image/*" required />
+    <input type="file" id="image-file" accept="image/*,.pdf" required />
     <button type="submit">Upload Image</button>
   </form>
 
@@ -48,12 +48,26 @@
   <h2>My Invoices</h2>
   <button id="load-invoices">Load My Invoices</button>
 
+  <h2>Manage Reminders</h2>
+  <form id="create-reminder-form">
+    <input type="text" id="reminder-filename" placeholder="File name to create reminder" style="width: 100%;" />
+    <button type="submit">Create Reminder</button>
+  </form>
+
+  <form id="delete-reminder-form">
+    <input type="text" id="delete-filename" placeholder="File name to delete reminder" style="width: 100%;" />
+    <button type="submit">Delete Reminder</button>
+  </form>
+
+  <button id="get-reminders">Get My Reminders</button>
+
   <pre id="output"></pre>
 
   <script>
     let accessToken = null;
     const output = document.getElementById('output');
 
+    // Signup
     document.getElementById('signup-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('signup-email').value;
@@ -68,6 +82,7 @@
       output.textContent = 'Signup:\n' + JSON.stringify(data, null, 2);
     });
 
+    // Login
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('login-email').value;
@@ -88,12 +103,10 @@
       }
     });
 
+    // Upload
     document.getElementById('upload-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (!accessToken) {
-        output.textContent = 'Please log in first!';
-        return;
-      }
+      if (!accessToken) return output.textContent = 'Please log in first!';
 
       const file = document.getElementById('image-file').files[0];
       if (!file) return;
@@ -109,121 +122,132 @@
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${accessToken}`
           },
-          body: JSON.stringify({
-            image: base64,
-            extension: extension
-          })
+          body: JSON.stringify({ image: base64, extension })
         });
 
         const data = await res.json();
         output.textContent = 'Upload:\n' + JSON.stringify(data, null, 2);
-
-        if (data.file_name) {
-          document.getElementById('extract-filename').value = data.file_name;
-        }
+        if (data.file_name) document.getElementById('extract-filename').value = data.file_name;
       };
       reader.readAsDataURL(file);
     });
 
+    // Extract
     document.getElementById('extract-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (!accessToken) {
-        output.textContent = 'Please log in first!';
-        return;
-      }
-
+      if (!accessToken) return output.textContent = 'Please log in first!';
       const fileName = document.getElementById('extract-filename').value;
-      if (!fileName) {
-        output.textContent = 'Please enter the file name';
-        return;
-      }
+      if (!fileName) return output.textContent = 'Please enter the file name';
 
       const res = await fetch(`http://localhost:8000/extract-invoice/${encodeURIComponent(fileName)}`, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
+        headers: { 'Authorization': `Bearer ${accessToken}` }
       });
 
       const data = await res.json();
       output.textContent = 'Extracted Data:\n' + JSON.stringify(data, null, 2);
     });
 
+    // Reanalyze
     document.getElementById('reanalyze-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (!accessToken) {
-        output.textContent = 'Please log in first!';
-        return;
-      }
-
+      if (!accessToken) return output.textContent = 'Please log in first!';
       const fileName = document.getElementById('reanalyze-filename').value;
-      if (!fileName) {
-        output.textContent = 'Please enter the file name to reanalyze';
-        return;
-      }
+      if (!fileName) return output.textContent = 'Enter file name to reanalyze';
 
       const res = await fetch(`http://localhost:8000/reanalyze/${encodeURIComponent(fileName)}`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
+        headers: { 'Authorization': `Bearer ${accessToken}` }
       });
 
       const data = await res.json();
       output.textContent = 'Reanalyzed Data:\n' + JSON.stringify(data, null, 2);
     });
 
+    // Latest invoice
     document.getElementById('latest-invoice').addEventListener('click', async () => {
-      if (!accessToken) {
-        output.textContent = 'Please log in first!';
-        return;
-      }
-
+      if (!accessToken) return output.textContent = 'Please log in first!';
       const res = await fetch('http://localhost:8000/latest-invoice', {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
+        headers: { 'Authorization': `Bearer ${accessToken}` }
       });
-
       const data = await res.json();
       output.textContent = 'Latest Invoice:\n' + JSON.stringify(data, null, 2);
     });
 
+    // Search
     document.getElementById('search-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (!accessToken) {
-        output.textContent = 'Please log in first!';
-        return;
-      }
-
+      if (!accessToken) return output.textContent = 'Please log in first!';
       const query = document.getElementById('search-query').value;
+
       const res = await fetch(`http://localhost:8000/search-invoices?q=${encodeURIComponent(query)}`, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
+        headers: { 'Authorization': `Bearer ${accessToken}` }
       });
 
       const data = await res.json();
       output.textContent = 'Search Results:\n' + JSON.stringify(data, null, 2);
     });
 
+    // Load invoices
     document.getElementById('load-invoices').addEventListener('click', async () => {
-      if (!accessToken) {
-        output.textContent = 'Please log in first!';
-        return;
-      }
-
+      if (!accessToken) return output.textContent = 'Please log in first!';
       const res = await fetch('http://localhost:8000/my-invoices', {
         method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      const data = await res.json();
+      output.textContent = 'Your Invoices:\n' + JSON.stringify(data, null, 2);
+    });
+
+    // Get reminders
+    document.getElementById('get-reminders').addEventListener('click', async () => {
+      if (!accessToken) return output.textContent = 'Please log in first!';
+      const res = await fetch('http://localhost:8000/get-reminders', {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      const data = await res.json();
+      output.textContent = 'Your Reminders:\n' + JSON.stringify(data, null, 2);
+    });
+
+    // Create reminder
+    document.getElementById('create-reminder-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!accessToken) return output.textContent = 'Please log in first!';
+      const fileName = document.getElementById('reminder-filename').value;
+
+      const res = await fetch('http://localhost:8000/create-reminder', {
+        method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${accessToken}`
-        }
+        },
+        body: JSON.stringify({ file_name: fileName })
       });
 
       const data = await res.json();
-      output.textContent = 'Your Invoices:\n' + JSON.stringify(data, null, 2);
+      output.textContent = 'Create Reminder:\n' + JSON.stringify(data, null, 2);
+    });
+
+    // Delete reminder
+    document.getElementById('delete-reminder-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!accessToken) return output.textContent = 'Please log in first!';
+      const fileName = document.getElementById('delete-filename').value;
+
+      const res = await fetch('http://localhost:8000/delete-reminder', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ file_name: fileName })
+      });
+
+      const data = await res.json();
+      output.textContent = 'Delete Reminder:\n' + JSON.stringify(data, null, 2);
     });
   </script>
 </body>
